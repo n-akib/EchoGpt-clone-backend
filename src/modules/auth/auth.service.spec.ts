@@ -46,6 +46,13 @@ describe('AuthService', () => {
       signAsync: jest.fn().mockImplementation((payload, options) => {
         return Promise.resolve(`jwt_token_${payload.sub}`);
       }),
+      verifyAsync: jest.fn().mockImplementation((token, options) => {
+        return Promise.resolve({
+          sub: mockUser.id,
+          email: mockUser.email,
+          role: mockUser.role,
+        });
+      }),
     };
 
     configService = {
@@ -195,6 +202,71 @@ describe('AuthService', () => {
         authService.login({
           email: 'test@example.com',
           password: 'CorrectPassword123!',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('refreshTokens', () => {
+    it('should rotate tokens and return new token pair for valid refresh token', async () => {
+      const validSession = {
+        id: 'session-123',
+        userId: mockUser.id,
+        tokenHash: authService.hashToken('valid_refresh_token'),
+        isRevoked: false,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      };
+
+      refreshTokenRepository.findOne.mockResolvedValue(validSession);
+      usersService.findById.mockResolvedValue(mockUser);
+
+      const result = await authService.refreshTokens({
+        refreshToken: 'valid_refresh_token',
+      });
+
+      expect(refreshTokenRepository.findOne).toHaveBeenCalled();
+      expect(validSession.isRevoked).toBe(true);
+      expect(refreshTokenRepository.save).toHaveBeenCalledWith(validSession);
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
+    });
+
+    it('should throw UnauthorizedException if session is already revoked', async () => {
+      const revokedSession = {
+        id: 'session-123',
+        userId: mockUser.id,
+        tokenHash: authService.hashToken('revoked_refresh_token'),
+        isRevoked: true,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      };
+
+      refreshTokenRepository.findOne.mockResolvedValue(revokedSession);
+
+      await expect(
+        authService.refreshTokens({
+          refreshToken: 'revoked_refresh_token',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: mockUser.id },
+        { isRevoked: true },
+      );
+    });
+
+    it('should throw UnauthorizedException if session expired', async () => {
+      const expiredSession = {
+        id: 'session-123',
+        userId: mockUser.id,
+        tokenHash: authService.hashToken('expired_refresh_token'),
+        isRevoked: false,
+        expiresAt: new Date(Date.now() - 1000 * 60), // past
+      };
+
+      refreshTokenRepository.findOne.mockResolvedValue(expiredSession);
+
+      await expect(
+        authService.refreshTokens({
+          refreshToken: 'expired_refresh_token',
         }),
       ).rejects.toThrow(UnauthorizedException);
     });

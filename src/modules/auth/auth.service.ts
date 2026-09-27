@@ -16,6 +16,7 @@ import { User } from '../users/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AuthResponseDto, UserProfileDto } from './dto/auth-response.dto';
 
 @Injectable()
@@ -198,6 +199,72 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    const tokens = await this.generateTokens(user, meta);
+
+    return {
+      user: this.mapUserToProfile(user),
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      tokenType: 'Bearer',
+      expiresIn: tokens.expiresIn,
+    };
+  }
+
+  /**
+   * Refreshes JWT tokens using a valid refresh token (with token rotation).
+   */
+  async refreshTokens(
+    refreshTokenDto: RefreshTokenDto,
+    meta?: { ip?: string; userAgent?: string },
+  ): Promise<AuthResponseDto> {
+    const refreshSecret = this.configService.get<string>(
+      'JWT_REFRESH_SECRET',
+      'default_refresh_secret_do_not_use_in_prod',
+    );
+
+    let payload: { sub: string; email: string; role: string; jti?: string };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshTokenDto.refreshToken, {
+        secret: refreshSecret,
+      });
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const tokenHash = this.hashToken(refreshTokenDto.refreshToken);
+    const session = await this.refreshTokenRepository.findOne({
+      where: { tokenHash },
+    });
+
+    if (!session) {
+      throw new UnauthorizedException('Refresh token session not found');
+    }
+
+    if (session.isRevoked) {
+      // Possible reuse attack detected: invalidate all sessions for user
+      await this.refreshTokenRepository.update(
+        { userId: session.userId },
+        { isRevoked: true },
+      );
+      throw new UnauthorizedException(
+        'Refresh token has been revoked. For security reasons, please log in again.',
+      );
+    }
+
+    if (session.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token has expired');
+    }
+
+    const user = await this.usersService.findById(session.userId);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User account is inactive or not found');
+    }
+
+    // Revoke old session (Rotation)
+    session.isRevoked = true;
+    await this.refreshTokenRepository.save(session);
+
+    // Issue fresh tokens
     const tokens = await this.generateTokens(user, meta);
 
     return {
