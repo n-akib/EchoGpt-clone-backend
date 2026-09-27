@@ -12,10 +12,12 @@ import {
   ApiResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 
 @ApiTags('Auth')
@@ -45,4 +47,28 @@ export class AuthController {
     const userAgent = req.headers['user-agent'];
     return this.authService.register(registerDto, { ip, userAgent });
   }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Log in user',
+    description:
+      'Authenticates user with email and password, returning a new access/refresh token pair.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User successfully authenticated',
+    type: AuthResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Invalid email or password' })
+  @ApiBadRequestResponse({ description: 'Invalid input parameters' })
+  async login(
+    @Body() loginDto: LoginDto,
+    @Req() req: Request,
+  ): Promise<AuthResponseDto> {
+    const ip = req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    return this.authService.login(loginDto, { ip, userAgent });
+  }
 }
+

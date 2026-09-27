@@ -1,6 +1,7 @@
 import {
   Injectable,
   ConflictException,
+  UnauthorizedException,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto, UserProfileDto } from './dto/auth-response.dto';
 
 @Injectable()
@@ -170,4 +172,41 @@ export class AuthService {
       expiresIn: tokens.expiresIn,
     };
   }
+
+  /**
+   * Authenticates user with email and password and returns access/refresh tokens.
+   */
+  async login(
+    loginDto: LoginDto,
+    meta?: { ip?: string; userAgent?: string },
+  ): Promise<AuthResponseDto> {
+    const user = await this.usersService.findByEmailWithPassword(loginDto.email);
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is inactive. Please contact support.');
+    }
+
+    const isPasswordValid = await this.comparePasswords(
+      loginDto.password,
+      user.passwordHash,
+    );
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    const tokens = await this.generateTokens(user, meta);
+
+    return {
+      user: this.mapUserToProfile(user),
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      tokenType: 'Bearer',
+      expiresIn: tokens.expiresIn,
+    };
+  }
 }
+

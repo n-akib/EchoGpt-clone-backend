@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -136,4 +136,68 @@ describe('AuthService', () => {
       );
     });
   });
+
+  describe('login', () => {
+    it('should successfully log in with valid credentials and return tokens', async () => {
+      const password = 'CorrectPassword123!';
+      const passwordHash = await authService.hashPassword(password);
+      usersService.findByEmailWithPassword.mockResolvedValue({
+        ...mockUser,
+        passwordHash,
+      });
+
+      const result = await authService.login(
+        { email: 'test@example.com', password },
+        { ip: '127.0.0.1', userAgent: 'Jest' },
+      );
+
+      expect(usersService.findByEmailWithPassword).toHaveBeenCalledWith(
+        'test@example.com',
+      );
+      expect(result.user.email).toBe('test@example.com');
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
+    });
+
+    it('should throw UnauthorizedException for wrong password', async () => {
+      const passwordHash = await authService.hashPassword('CorrectPassword123!');
+      usersService.findByEmailWithPassword.mockResolvedValue({
+        ...mockUser,
+        passwordHash,
+      });
+
+      await expect(
+        authService.login({
+          email: 'test@example.com',
+          password: 'WrongPassword!',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if email does not exist', async () => {
+      usersService.findByEmailWithPassword.mockResolvedValue(null);
+
+      await expect(
+        authService.login({
+          email: 'unknown@example.com',
+          password: 'SomePassword123!',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if account is inactive', async () => {
+      usersService.findByEmailWithPassword.mockResolvedValue({
+        ...mockUser,
+        isActive: false,
+      });
+
+      await expect(
+        authService.login({
+          email: 'test@example.com',
+          password: 'CorrectPassword123!',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+  });
 });
+
