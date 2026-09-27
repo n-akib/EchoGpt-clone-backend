@@ -271,5 +271,32 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
   });
+
+  describe('logout', () => {
+    it('should revoke specific refresh token session when provided', async () => {
+      const token = 'my_refresh_token';
+      const tokenHash = authService.hashToken(token);
+
+      const result = await authService.logout(mockUser.id, {
+        refreshToken: token,
+      });
+
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: mockUser.id, tokenHash },
+        { isRevoked: true },
+      );
+      expect(result).toEqual({ message: 'Successfully logged out' });
+    });
+
+    it('should revoke all active sessions when no specific token is provided', async () => {
+      const result = await authService.logout(mockUser.id);
+
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: mockUser.id, isRevoked: false },
+        { isRevoked: true },
+      );
+      expect(result).toEqual({ message: 'Successfully logged out' });
+    });
+  });
 });
 

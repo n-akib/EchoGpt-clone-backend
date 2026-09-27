@@ -1,10 +1,12 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   HttpCode,
   HttpStatus,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -13,13 +15,19 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiUnauthorizedResponse,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { AuthResponseDto } from './dto/auth-response.dto';
+import { AuthResponseDto, UserProfileDto } from './dto/auth-response.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import {
+  CurrentUser,
+  CurrentUserPayload,
+} from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -95,6 +103,52 @@ export class AuthController {
     const ip = req.ip || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'];
     return this.authService.refreshTokens(refreshTokenDto, { ip, userAgent });
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Log out user',
+    description:
+      'Revokes active refresh token session for the currently authenticated user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Successfully logged out',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Successfully logged out' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  async logout(
+    @CurrentUser('id') userId: string,
+    @Body() refreshTokenDto?: RefreshTokenDto,
+  ): Promise<{ message: string }> {
+    return this.authService.logout(userId, refreshTokenDto);
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get current user profile',
+    description: 'Returns profile details of the authenticated user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Current user profile',
+    type: UserProfileDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  async getProfile(
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<CurrentUserPayload> {
+    return user;
   }
 }
 

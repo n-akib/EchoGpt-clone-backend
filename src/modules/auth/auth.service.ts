@@ -275,5 +275,29 @@ export class AuthService {
       expiresIn: tokens.expiresIn,
     };
   }
+
+  /**
+   * Logs out the user by revoking the refresh token session.
+   */
+  async logout(
+    userId: string,
+    refreshTokenDto?: RefreshTokenDto,
+  ): Promise<{ message: string }> {
+    if (refreshTokenDto?.refreshToken) {
+      const tokenHash = this.hashToken(refreshTokenDto.refreshToken);
+      await this.refreshTokenRepository.update(
+        { userId, tokenHash },
+        { isRevoked: true },
+      );
+    } else {
+      // Revoke all active sessions for this user
+      await this.refreshTokenRepository.update(
+        { userId, isRevoked: false },
+        { isRevoked: true },
+      );
+    }
+
+    return { message: 'Successfully logged out' };
+  }
 }
 
