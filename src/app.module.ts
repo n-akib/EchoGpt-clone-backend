@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import databaseConfig from './config/database.config';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuthModule } from './modules/auth/auth.module';
     }),
     UsersModule,
     AuthModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
