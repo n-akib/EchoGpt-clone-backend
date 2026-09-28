@@ -42,8 +42,8 @@ async function bootstrap() {
     .addTag('Subscriptions', 'Subscription tiers and request quotas')
     .addTag('AI Providers', 'LLM provider management and configuration')
     .addTag('Chat', 'Chat completions and conversation threads')
-    .addTag('Search', 'Web search and query history')
-    .addTag('Admin', 'Administrative analytics and system logs')
+    .addTag('Web Search', 'Web search and query history')
+    .addTag('Admin Panel', 'Administrative analytics and management')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
