@@ -10,4 +10,6 @@ export default registerAs('database', () => ({
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   synchronize: process.env.DB_SYNCHRONIZE === 'true',
   autoLoadEntities: true,
+  migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
+  migrationsRun: process.env.MIGRATIONS_RUN === 'true',
 }));
