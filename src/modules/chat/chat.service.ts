@@ -16,6 +16,7 @@ import { ChatMessageResponseDto } from './dto/chat-message-response.dto';
 import { ConversationResponseDto } from './dto/conversation-response.dto';
 import { ConversationDetailResponseDto } from './dto/conversation-detail-response.dto';
 import { PromptMessage } from '../providers/interfaces/ai-provider.interface';
+import { Observable } from 'rxjs';
 
 @Injectable()
 export class ChatService {
@@ -311,6 +312,169 @@ export class ChatService {
 
     savedAssistantMessage.provider = providerWithKey;
     return this.mapToMessageDto(savedAssistantMessage);
+  }
+
+  streamMessage(
+    userId: string,
+    sendPromptDto: SendPromptDto,
+  ): Observable<{ data: string | object }> {
+    return new Observable((subscriber) => {
+      (async () => {
+        try {
+          // 1. Consume 1 request quota from subscription
+          await this.subscriptionsService.consumeRequest(userId);
+
+          // 2. Resolve AI provider and model with plan validation
+          const { provider: providerWithKey, model, strategy } =
+            await this.resolveProviderAndModel(
+              userId,
+              sendPromptDto.providerId,
+              sendPromptDto.model,
+            );
+
+          // 3. Resolve or create conversation
+          let conversation: ChatConversation;
+          let isNewConversation = false;
+
+          if (sendPromptDto.conversationId) {
+            const found = await this.conversationRepository.findOne({
+              where: { id: sendPromptDto.conversationId, userId },
+              relations: ['messages'],
+              order: {
+                messages: {
+                  createdAt: 'ASC',
+                },
+              },
+            });
+
+            if (!found) {
+              throw new NotFoundException(
+                `Conversation with ID "${sendPromptDto.conversationId}" not found`,
+              );
+            }
+            conversation = found;
+          } else {
+            isNewConversation = true;
+            const initialTitle =
+              sendPromptDto.message.slice(0, 40).trim() || 'New Chat';
+            conversation = this.conversationRepository.create({
+              userId,
+              title: initialTitle,
+            });
+            conversation = await this.conversationRepository.save(conversation);
+            conversation.messages = [];
+          }
+
+          // 4. Save User message to DB
+          const userMessage = this.messageRepository.create({
+            conversationId: conversation.id,
+            role: MessageRole.USER,
+            content: sendPromptDto.message,
+          });
+          await this.messageRepository.save(userMessage);
+
+          subscriber.next({
+            data: {
+              event: 'start',
+              conversationId: conversation.id,
+              userMessageId: userMessage.id,
+              model,
+              provider: providerWithKey.name,
+            },
+          });
+
+          // 5. Build prompt history
+          const promptMessages: PromptMessage[] = [];
+
+          if (sendPromptDto.systemPrompt) {
+            promptMessages.push({
+              role: 'system',
+              content: sendPromptDto.systemPrompt,
+            });
+          }
+
+          if (conversation.messages && conversation.messages.length > 0) {
+            for (const msg of conversation.messages) {
+              promptMessages.push({
+                role: msg.role as 'system' | 'user' | 'assistant',
+                content: msg.content,
+              });
+            }
+          }
+
+          promptMessages.push({
+            role: 'user',
+            content: sendPromptDto.message,
+          });
+
+          // 6. Execute AI provider response
+          const aiResponse = await strategy.sendPrompt(
+            providerWithKey.decryptedApiKey,
+            promptMessages,
+            {
+              model,
+              temperature: sendPromptDto.temperature,
+            },
+            providerWithKey.baseUrl || undefined,
+          );
+
+          // Stream chunks / words
+          const words = aiResponse.content.split(' ');
+          for (let i = 0; i < words.length; i++) {
+            const chunk = (i > 0 ? ' ' : '') + words[i];
+            subscriber.next({
+              data: {
+                event: 'chunk',
+                chunk,
+              },
+            });
+          }
+
+          // 7. Save Assistant message to DB
+          const assistantMessage = this.messageRepository.create({
+            conversationId: conversation.id,
+            role: MessageRole.ASSISTANT,
+            content: aiResponse.content,
+            providerId: providerWithKey.id,
+            model: aiResponse.model,
+            promptTokens: aiResponse.usage?.promptTokens || null,
+            completionTokens: aiResponse.usage?.completionTokens || null,
+            totalTokens: aiResponse.usage?.totalTokens || null,
+          });
+
+          const savedAssistantMessage =
+            await this.messageRepository.save(assistantMessage);
+
+          // 8. Update conversation
+          if (!isNewConversation && conversation.title === 'New Chat') {
+            conversation.title =
+              sendPromptDto.message.slice(0, 40).trim() || 'New Chat';
+          }
+          conversation.updatedAt = new Date();
+          await this.conversationRepository.save(conversation);
+
+          subscriber.next({
+            data: {
+              event: 'done',
+              messageId: savedAssistantMessage.id,
+              conversationId: conversation.id,
+              fullContent: aiResponse.content,
+              totalTokens: aiResponse.usage?.totalTokens || null,
+            },
+          });
+
+          subscriber.complete();
+        } catch (error) {
+          subscriber.next({
+            data: {
+              event: 'error',
+              error: error.message,
+            },
+          });
+          subscriber.error(error);
+        }
+      })();
+    });
   }
 
   private mapToConversationDto(

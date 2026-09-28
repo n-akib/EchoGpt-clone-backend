@@ -333,4 +333,47 @@ describe('ChatService', () => {
       ).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('streamMessage', () => {
+    it('should stream chunks via observable and emit done event', (done) => {
+      providersService.findDefaultProviderWithApiKey.mockResolvedValue(
+        mockProviderWithKey,
+      );
+
+      const mockStrategy = {
+        sendPrompt: jest.fn().mockResolvedValue({
+          content: 'Streaming chunk response',
+          model: 'gpt-4o-mini',
+          provider: ProviderType.OPENAI,
+          usage: {
+            promptTokens: 5,
+            completionTokens: 3,
+            totalTokens: 8,
+          },
+        }),
+      };
+      providersService.getStrategy.mockReturnValue(mockStrategy);
+      conversationRepository.findOne.mockResolvedValue(null);
+
+      const events: any[] = [];
+      const stream$ = service.streamMessage('user-uuid-1', {
+        message: 'Hello streaming',
+      });
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.some((e) => e.event === 'start')).toBe(true);
+          expect(events.some((e) => e.event === 'chunk')).toBe(true);
+          expect(events.some((e) => e.event === 'done')).toBe(true);
+          done();
+        },
+        error: (err) => {
+          done(err);
+        },
+      });
+    });
+  });
 });

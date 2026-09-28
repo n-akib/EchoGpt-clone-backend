@@ -10,7 +10,10 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import {
   ApiTags,
   ApiOperation,
@@ -72,6 +75,26 @@ export class ChatController {
     @Body() sendPromptDto: SendPromptDto,
   ): Promise<ChatMessageResponseDto> {
     return this.chatService.sendMessage(userId, sendPromptDto);
+  }
+
+  @Post('stream')
+  @Sse()
+  @ApiOperation({
+    summary: 'Stream AI response via Server-Sent Events (SSE)',
+    description: 'Streams AI generation chunks incrementally via SSE. Consumes 1 subscription request and persists complete conversation history on finish.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Server-Sent Events stream of message chunks',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Subscription request limit reached' })
+  @ApiBadRequestResponse({ description: 'Invalid input or disabled provider' })
+  streamMessage(
+    @CurrentUser('id') userId: string,
+    @Body() sendPromptDto: SendPromptDto,
+  ): Observable<MessageEvent> {
+    return this.chatService.streamMessage(userId, sendPromptDto) as Observable<MessageEvent>;
   }
 
   @Post('conversations')
