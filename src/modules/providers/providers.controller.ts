@@ -29,6 +29,7 @@ import { UserRole } from '../users/enums/user-role.enum';
 import { CreateProviderDto } from './dto/create-provider.dto';
 import { UpdateProviderDto } from './dto/update-provider.dto';
 import { ProviderResponseDto } from './dto/provider-response.dto';
+import { HealthCheckResponseDto } from './dto/health-check-response.dto';
 
 @ApiTags('AI Providers')
 @ApiBearerAuth('JWT-auth')
@@ -103,6 +104,43 @@ export class ProvidersController {
   @ApiNotFoundResponse({ description: 'No active AI providers configured' })
   async getDefault(): Promise<ProviderResponseDto> {
     return this.providersService.getDefault();
+  }
+
+  @Get('health/all')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: '[Admin] Health-check all enabled AI providers',
+    description: 'Runs concurrent health-checks across all enabled providers, measuring latency and verifying API key validity.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Health-check results for all providers',
+    type: [HealthCheckResponseDto],
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Admin role required' })
+  async healthCheckAll(): Promise<HealthCheckResponseDto[]> {
+    return this.providersService.healthCheckAll();
+  }
+
+  @Get(':id/health')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: '[Admin] Health-check specific AI provider',
+    description: 'Sends a lightweight verification request using decrypted API credentials and returns connectivity status and latency.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Health check result',
+    type: HealthCheckResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Admin role required' })
+  @ApiNotFoundResponse({ description: 'Provider not found' })
+  async healthCheck(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<HealthCheckResponseDto> {
+    return this.providersService.healthCheck(id);
   }
 
   @Get(':id')

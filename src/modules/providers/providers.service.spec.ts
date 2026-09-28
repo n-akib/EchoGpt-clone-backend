@@ -289,6 +289,65 @@ describe('ProvidersService', () => {
     });
   });
 
+  describe('healthCheck', () => {
+    it('should run health check via strategy and return health result', async () => {
+      const originalKey = 'sk-proj-secret-key-1234';
+      const enc = encryptionService.encrypt(originalKey);
+
+      const qb = providerRepository.createQueryBuilder();
+      qb.getOne.mockResolvedValue({
+        ...mockProvider,
+        apiKeyEncrypted: enc.ciphertext,
+        apiKeyIv: enc.iv,
+        apiKeyTag: enc.tag,
+      });
+
+      const openAiStrategy = service.getStrategy(ProviderType.OPENAI);
+      jest.spyOn(openAiStrategy, 'healthCheck').mockResolvedValue({
+        provider: ProviderType.OPENAI,
+        status: 'healthy',
+        latencyMs: 85,
+        timestamp: new Date(),
+      });
+
+      const result = await service.healthCheck('prov-uuid-1');
+
+      expect(result.status).toBe('healthy');
+      expect(result.latencyMs).toBe(85);
+      expect(result.providerName).toBe('OpenAI Primary');
+    });
+  });
+
+  describe('healthCheckAll', () => {
+    it('should check health of all enabled providers', async () => {
+      const originalKey = 'sk-proj-secret-key-1234';
+      const enc = encryptionService.encrypt(originalKey);
+
+      const qb = providerRepository.createQueryBuilder();
+      qb.getMany.mockResolvedValue([
+        {
+          ...mockProvider,
+          apiKeyEncrypted: enc.ciphertext,
+          apiKeyIv: enc.iv,
+          apiKeyTag: enc.tag,
+        },
+      ]);
+
+      const openAiStrategy = service.getStrategy(ProviderType.OPENAI);
+      jest.spyOn(openAiStrategy, 'healthCheck').mockResolvedValue({
+        provider: ProviderType.OPENAI,
+        status: 'healthy',
+        latencyMs: 90,
+        timestamp: new Date(),
+      });
+
+      const results = await service.healthCheckAll();
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe('healthy');
+    });
+  });
+
   describe('getStrategy', () => {
     it('should return OpenAiStrategy for ProviderType.OPENAI', () => {
       const strategy = service.getStrategy(ProviderType.OPENAI);

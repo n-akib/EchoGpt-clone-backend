@@ -13,6 +13,7 @@ import { AiProviderStrategy } from './interfaces/ai-provider.interface';
 import { CreateProviderDto } from './dto/create-provider.dto';
 import { UpdateProviderDto } from './dto/update-provider.dto';
 import { ProviderResponseDto } from './dto/provider-response.dto';
+import { HealthCheckResponseDto } from './dto/health-check-response.dto';
 
 @Injectable()
 export class ProvidersService {
@@ -305,6 +306,73 @@ export class ProvidersService {
     }
 
     return this.findById(provider.id);
+  }
+
+  async healthCheck(id: string): Promise<HealthCheckResponseDto> {
+    const provider = await this.findEntityWithApiKey(id);
+    const strategy = this.getStrategy(provider.type);
+
+    const result = await strategy.healthCheck(
+      provider.decryptedApiKey,
+      provider.baseUrl || undefined,
+    );
+
+    return {
+      providerId: provider.id,
+      providerName: provider.name,
+      type: provider.type,
+      status: result.status,
+      latencyMs: result.latencyMs,
+      error: result.error,
+      timestamp: result.timestamp,
+    };
+  }
+
+  async healthCheckAll(): Promise<HealthCheckResponseDto[]> {
+    const providers = await this.providerRepository
+      .createQueryBuilder('provider')
+      .addSelect(['provider.apiKeyEncrypted', 'provider.apiKeyIv', 'provider.apiKeyTag'])
+      .where('provider.isEnabled = :isEnabled', { isEnabled: true })
+      .getMany();
+
+    const results = await Promise.all(
+      providers.map(async (provider) => {
+        try {
+          const decryptedApiKey = this.encryptionService.decrypt(
+            provider.apiKeyEncrypted,
+            provider.apiKeyIv,
+            provider.apiKeyTag,
+          );
+          const strategy = this.getStrategy(provider.type);
+          const res = await strategy.healthCheck(
+            decryptedApiKey,
+            provider.baseUrl || undefined,
+          );
+
+          return {
+            providerId: provider.id,
+            providerName: provider.name,
+            type: provider.type,
+            status: res.status,
+            latencyMs: res.latencyMs,
+            error: res.error,
+            timestamp: res.timestamp,
+          };
+        } catch (error) {
+          return {
+            providerId: provider.id,
+            providerName: provider.name,
+            type: provider.type,
+            status: 'unhealthy' as const,
+            latencyMs: 0,
+            error: error.message,
+            timestamp: new Date(),
+          };
+        }
+      }),
+    );
+
+    return results;
   }
 
   getStrategy(type: ProviderType): AiProviderStrategy {
