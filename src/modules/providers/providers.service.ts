@@ -247,6 +247,66 @@ export class ProvidersService {
     return { message: 'AI Provider deleted successfully' };
   }
 
+  async toggleEnabled(
+    id: string,
+    isEnabled?: boolean,
+  ): Promise<ProviderResponseDto> {
+    const provider = await this.providerRepository.findOne({ where: { id } });
+    if (!provider) {
+      throw new NotFoundException(`AI Provider with ID "${id}" not found`);
+    }
+
+    provider.isEnabled = isEnabled !== undefined ? isEnabled : !provider.isEnabled;
+
+    // If disabled and was default, clear default
+    if (!provider.isEnabled && provider.isDefault) {
+      provider.isDefault = false;
+    }
+
+    const saved = await this.providerRepository.save(provider);
+    return this.findById(saved.id);
+  }
+
+  async setDefault(id: string): Promise<ProviderResponseDto> {
+    const provider = await this.providerRepository.findOne({ where: { id } });
+    if (!provider) {
+      throw new NotFoundException(`AI Provider with ID "${id}" not found`);
+    }
+
+    if (!provider.isEnabled) {
+      throw new BadRequestException('Cannot set a disabled provider as default');
+    }
+
+    // Unset all existing defaults
+    await this.providerRepository.update({ isDefault: true }, { isDefault: false });
+
+    provider.isDefault = true;
+    const saved = await this.providerRepository.save(provider);
+    return this.findById(saved.id);
+  }
+
+  async getDefault(): Promise<ProviderResponseDto> {
+    const provider = await this.providerRepository.findOne({
+      where: { isDefault: true, isEnabled: true },
+    });
+
+    if (!provider) {
+      // Fallback to first enabled provider
+      const fallback = await this.providerRepository.findOne({
+        where: { isEnabled: true },
+        order: { createdAt: 'ASC' },
+      });
+
+      if (!fallback) {
+        throw new NotFoundException('No active AI providers available');
+      }
+
+      return this.findById(fallback.id);
+    }
+
+    return this.findById(provider.id);
+  }
+
   getStrategy(type: ProviderType): AiProviderStrategy {
     return this.strategyFactory.getStrategy(type);
   }

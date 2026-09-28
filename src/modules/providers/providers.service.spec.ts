@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProvidersService } from './providers.service';
 import { AiProvider } from './entities/ai-provider.entity';
@@ -197,6 +197,95 @@ describe('ProvidersService', () => {
       await expect(service.delete('non-existent')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('toggleEnabled', () => {
+    it('should toggle isEnabled status', async () => {
+      providerRepository.findOne.mockResolvedValue({
+        ...mockProvider,
+        isEnabled: true,
+      });
+
+      const qb = providerRepository.createQueryBuilder();
+      qb.getOne.mockResolvedValue({
+        ...mockProvider,
+        isEnabled: false,
+      });
+
+      const result = await service.toggleEnabled('prov-uuid-1', false);
+
+      expect(providerRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ isEnabled: false }),
+      );
+      expect(result.isEnabled).toBe(false);
+    });
+
+    it('should throw NotFoundException if provider not found', async () => {
+      providerRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.toggleEnabled('non-existent')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('setDefault', () => {
+    it('should unset previous defaults and set target provider as default', async () => {
+      providerRepository.findOne.mockResolvedValue({
+        ...mockProvider,
+        isEnabled: true,
+        isDefault: false,
+      });
+
+      const qb = providerRepository.createQueryBuilder();
+      qb.getOne.mockResolvedValue({
+        ...mockProvider,
+        isDefault: true,
+      });
+
+      const result = await service.setDefault('prov-uuid-1');
+
+      expect(providerRepository.update).toHaveBeenCalledWith(
+        { isDefault: true },
+        { isDefault: false },
+      );
+      expect(providerRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ isDefault: true }),
+      );
+      expect(result.isDefault).toBe(true);
+    });
+
+    it('should throw BadRequestException if provider is disabled', async () => {
+      providerRepository.findOne.mockResolvedValue({
+        ...mockProvider,
+        isEnabled: false,
+      });
+
+      await expect(service.setDefault('prov-uuid-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('getDefault', () => {
+    it('should return default enabled provider', async () => {
+      providerRepository.findOne.mockResolvedValue({
+        ...mockProvider,
+        isDefault: true,
+        isEnabled: true,
+      });
+
+      const qb = providerRepository.createQueryBuilder();
+      qb.getOne.mockResolvedValue({
+        ...mockProvider,
+        isDefault: true,
+      });
+
+      const result = await service.getDefault();
+
+      expect(result.id).toBe('prov-uuid-1');
+      expect(result.isDefault).toBe(true);
     });
   });
 

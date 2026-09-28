@@ -89,6 +89,22 @@ export class ProvidersController {
     return this.providersService.findAllEnabled();
   }
 
+  @Get('default')
+  @ApiOperation({
+    summary: 'Get default AI provider',
+    description: 'Retrieves the default configured AI provider for chat.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Default AI provider retrieved successfully',
+    type: ProviderResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiNotFoundResponse({ description: 'No active AI providers configured' })
+  async getDefault(): Promise<ProviderResponseDto> {
+    return this.providersService.getDefault();
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -128,6 +144,49 @@ export class ProvidersController {
     @Body() updateProviderDto: UpdateProviderDto,
   ): Promise<ProviderResponseDto> {
     return this.providersService.update(id, updateProviderDto);
+  }
+
+  @Patch(':id/toggle')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: '[Admin] Enable or disable AI provider',
+    description: 'Toggles active state or sets enabled boolean directly.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Provider status updated successfully',
+    type: ProviderResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Admin role required' })
+  @ApiNotFoundResponse({ description: 'Provider not found' })
+  async toggle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('isEnabled') isEnabled?: boolean,
+  ): Promise<ProviderResponseDto> {
+    return this.providersService.toggleEnabled(id, isEnabled);
+  }
+
+  @Post(':id/set-default')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: '[Admin] Set provider as system default',
+    description: 'Marks this AI provider as the system default. Unsets previous default.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Default provider updated successfully',
+    type: ProviderResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Admin role required' })
+  @ApiNotFoundResponse({ description: 'Provider not found' })
+  @ApiBadRequestResponse({ description: 'Cannot set disabled provider as default' })
+  async setDefault(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ProviderResponseDto> {
+    return this.providersService.setDefault(id);
   }
 
   @Delete(':id')
