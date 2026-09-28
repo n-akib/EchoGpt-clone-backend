@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { ProvidersModule } from './modules/providers/providers.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { ChatModule } from './modules/chat/chat.module';
     SubscriptionsModule,
     ProvidersModule,
     ChatModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
