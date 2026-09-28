@@ -21,6 +21,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SubscriptionResponseDto } from './dto/subscription-response.dto';
 import { PlanDetailsDto } from './dto/plan-details.dto';
 import { ChangePlanDto } from './dto/change-plan.dto';
+import { UsageResponseDto } from './dto/usage-response.dto';
 
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
@@ -80,5 +81,43 @@ export class SubscriptionsController {
     @Body() changePlanDto: ChangePlanDto,
   ): Promise<SubscriptionResponseDto> {
     return this.subscriptionsService.changePlan(userId, changePlanDto);
+  }
+
+  @Get('usage')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get usage limits and remaining requests',
+    description: 'Returns the current request limit, total used, remaining requests, and reset timestamp for the authenticated user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Usage details retrieved successfully',
+    type: UsageResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  async getUsage(
+    @CurrentUser('id') userId: string,
+  ): Promise<UsageResponseDto> {
+    return this.subscriptionsService.getUsage(userId);
+  }
+
+  @Get('remaining')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get remaining requests count',
+    description: 'Convenience endpoint to check remaining request quota for the current billing cycle.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Remaining requests retrieved successfully',
+    type: UsageResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  async getRemaining(
+    @CurrentUser('id') userId: string,
+  ): Promise<UsageResponseDto> {
+    return this.subscriptionsService.getUsage(userId);
   }
 }

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 import { Subscription } from './entities/subscription.entity';
 import { SubscriptionPlan } from './enums/subscription-plan.enum';
@@ -204,6 +204,94 @@ describe('SubscriptionsService', () => {
           plan: SubscriptionPlan.FREE,
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getUsage', () => {
+    it('should return correct usage statistics and isLimitReached flag', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        monthlyLimit: 50,
+        requestsUsed: 40,
+      });
+
+      const usage = await service.getUsage('user-uuid-1');
+
+      expect(usage.plan).toBe(SubscriptionPlan.FREE);
+      expect(usage.monthlyLimit).toBe(50);
+      expect(usage.requestsUsed).toBe(40);
+      expect(usage.requestsRemaining).toBe(10);
+      expect(usage.isLimitReached).toBe(false);
+    });
+
+    it('should return isLimitReached true when requestsUsed equals or exceeds limit', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        monthlyLimit: 50,
+        requestsUsed: 50,
+      });
+
+      const usage = await service.getUsage('user-uuid-1');
+
+      expect(usage.requestsRemaining).toBe(0);
+      expect(usage.isLimitReached).toBe(true);
+    });
+  });
+
+  describe('canConsumeRequest', () => {
+    it('should return true if requestsUsed < monthlyLimit', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        monthlyLimit: 50,
+        requestsUsed: 49,
+      });
+
+      const canConsume = await service.canConsumeRequest('user-uuid-1');
+      expect(canConsume).toBe(true);
+    });
+
+    it('should return false if requestsUsed >= monthlyLimit', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        monthlyLimit: 50,
+        requestsUsed: 50,
+      });
+
+      const canConsume = await service.canConsumeRequest('user-uuid-1');
+      expect(canConsume).toBe(false);
+    });
+  });
+
+  describe('consumeRequest', () => {
+    it('should increment requestsUsed and return remaining count when quota is available', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        monthlyLimit: 50,
+        requestsUsed: 10,
+      });
+
+      const result = await service.consumeRequest('user-uuid-1');
+
+      expect(subscriptionRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestsUsed: 11,
+        }),
+      );
+      expect(result.used).toBe(11);
+      expect(result.remaining).toBe(39);
+      expect(result.limit).toBe(50);
+    });
+
+    it('should throw ForbiddenException when quota is exhausted', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        monthlyLimit: 50,
+        requestsUsed: 50,
+      });
+
+      await expect(service.consumeRequest('user-uuid-1')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 });

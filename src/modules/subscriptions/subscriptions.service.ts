@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -15,6 +16,7 @@ import {
 import { SubscriptionResponseDto } from './dto/subscription-response.dto';
 import { PlanDetailsDto } from './dto/plan-details.dto';
 import { ChangePlanDto } from './dto/change-plan.dto';
+import { UsageResponseDto } from './dto/usage-response.dto';
 
 @Injectable()
 export class SubscriptionsService {
@@ -92,6 +94,54 @@ export class SubscriptionsService {
 
     const saved = await this.subscriptionRepository.save(subscription);
     return this.mapToResponseDto(saved);
+  }
+
+  async getUsage(userId: string): Promise<UsageResponseDto> {
+    const subscription = await this.getOrCreateUserSubscription(userId);
+    const remaining = Math.max(
+      0,
+      subscription.monthlyLimit - subscription.requestsUsed,
+    );
+
+    return {
+      plan: subscription.plan,
+      monthlyLimit: subscription.monthlyLimit,
+      requestsUsed: subscription.requestsUsed,
+      requestsRemaining: remaining,
+      isLimitReached: subscription.requestsUsed >= subscription.monthlyLimit,
+      periodResetsAt: subscription.currentPeriodEnd,
+    };
+  }
+
+  async canConsumeRequest(userId: string): Promise<boolean> {
+    const subscription = await this.getOrCreateUserSubscription(userId);
+    return subscription.requestsUsed < subscription.monthlyLimit;
+  }
+
+  async consumeRequest(
+    userId: string,
+  ): Promise<{ remaining: number; used: number; limit: number }> {
+    const subscription = await this.getOrCreateUserSubscription(userId);
+
+    if (subscription.requestsUsed >= subscription.monthlyLimit) {
+      throw new ForbiddenException(
+        `Monthly request limit of ${subscription.monthlyLimit} reached for your ${subscription.plan} plan. Please upgrade your subscription to continue.`,
+      );
+    }
+
+    subscription.requestsUsed += 1;
+    await this.subscriptionRepository.save(subscription);
+
+    const remaining = Math.max(
+      0,
+      subscription.monthlyLimit - subscription.requestsUsed,
+    );
+
+    return {
+      remaining,
+      used: subscription.requestsUsed,
+      limit: subscription.monthlyLimit,
+    };
   }
 
   getAvailablePlans(): PlanDetailsDto[] {
