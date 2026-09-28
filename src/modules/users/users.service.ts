@@ -139,5 +139,12 @@ export class UsersService {
 
     return { message: 'Account deleted successfully' };
   }
+
+  async findAllUsers(): Promise<User[]> {
+    return this.userRepository.find({
+      where: { isActive: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
 }
 
