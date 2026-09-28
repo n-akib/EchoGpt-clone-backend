@@ -50,4 +50,27 @@ export class UsersService {
     Object.assign(user, updateData);
     return this.userRepository.save(user);
   }
+
+  async getProfile(userId: string): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user || !user.isActive) {
+      throw new NotFoundException('User profile not found or account is inactive');
+    }
+    return user;
+  }
+
+  async updateProfile(
+    userId: string,
+    updateData: { firstName?: string; lastName?: string },
+  ): Promise<User> {
+    const user = await this.getProfile(userId);
+    if (updateData.firstName !== undefined) {
+      user.firstName = updateData.firstName.trim() || null;
+    }
+    if (updateData.lastName !== undefined) {
+      user.lastName = updateData.lastName.trim() || null;
+    }
+    return this.userRepository.save(user);
+  }
 }
+
