@@ -38,6 +38,20 @@ import { ConversationDetailResponseDto } from './dto/conversation-detail-respons
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
+  @Get('providers')
+  @ApiOperation({
+    summary: 'Get available AI providers for chat',
+    description: 'Returns all available AI providers and models tailored to the current user\'s subscription tier.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of available chat providers',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  async getProviders(@CurrentUser('id') userId: string) {
+    return this.chatService.getAvailableChatProviders(userId);
+  }
+
   @Post('send')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

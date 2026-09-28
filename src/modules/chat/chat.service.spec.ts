@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { ChatConversation } from './entities/chat-conversation.entity';
 import { ChatMessage, MessageRole } from './entities/chat-message.entity';
@@ -23,10 +27,12 @@ describe('ChatService', () => {
   };
   let subscriptionsService: {
     consumeRequest: jest.Mock;
+    getSubscriptionStatus: jest.Mock;
   };
   let providersService: {
     findEntityWithApiKey: jest.Mock;
     findDefaultProviderWithApiKey: jest.Mock;
+    findAllEnabled: jest.Mock;
     getStrategy: jest.Mock;
   };
 
@@ -77,11 +83,15 @@ describe('ChatService', () => {
         used: 1,
         limit: 50,
       }),
+      getSubscriptionStatus: jest.fn().mockResolvedValue({
+        plan: 'free',
+      }),
     };
 
     providersService = {
       findEntityWithApiKey: jest.fn(),
       findDefaultProviderWithApiKey: jest.fn(),
+      findAllEnabled: jest.fn(),
       getStrategy: jest.fn(),
     };
 
@@ -234,6 +244,93 @@ describe('ChatService', () => {
       expect(result.content).toBe('Hello! How can I assist you?');
       expect(result.role).toBe(MessageRole.ASSISTANT);
       expect(result.totalTokens).toBe(18);
+    });
+  });
+
+  describe('getAvailableChatProviders', () => {
+    it('should mark non-default providers accessible for premium users', async () => {
+      subscriptionsService.getSubscriptionStatus.mockResolvedValue({
+        plan: 'premium',
+      });
+      providersService.findAllEnabled.mockResolvedValue([
+        { id: '1', name: 'OpenAI', isDefault: true },
+        { id: '2', name: 'Claude', isDefault: false },
+      ]);
+
+      const providers = await service.getAvailableChatProviders('user-uuid-1');
+
+      expect(providers[0].isAccessible).toBe(true);
+      expect(providers[1].isAccessible).toBe(true);
+    });
+
+    it('should mark non-default providers locked for free tier users', async () => {
+      subscriptionsService.getSubscriptionStatus.mockResolvedValue({
+        plan: 'free',
+      });
+      providersService.findAllEnabled.mockResolvedValue([
+        { id: '1', name: 'OpenAI', isDefault: true },
+        { id: '2', name: 'Claude', isDefault: false },
+      ]);
+
+      const providers = await service.getAvailableChatProviders('user-uuid-1');
+
+      expect(providers[0].isAccessible).toBe(true);
+      expect(providers[1].isAccessible).toBe(false);
+      expect(providers[1].requiresPremium).toBe(true);
+    });
+  });
+
+  describe('resolveProviderAndModel', () => {
+    it('should throw ForbiddenException if free user tries to use non-default provider', async () => {
+      subscriptionsService.getSubscriptionStatus.mockResolvedValue({
+        plan: 'free',
+      });
+      providersService.findEntityWithApiKey.mockResolvedValue({
+        ...mockProviderWithKey,
+        isDefault: false,
+      });
+
+      await expect(
+        service.resolveProviderAndModel('user-uuid-1', 'prov-uuid-2'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should allow premium user to select non-default provider', async () => {
+      subscriptionsService.getSubscriptionStatus.mockResolvedValue({
+        plan: 'premium',
+      });
+      providersService.findEntityWithApiKey.mockResolvedValue({
+        ...mockProviderWithKey,
+        isDefault: false,
+        models: ['claude-3-5-sonnet'],
+        defaultModel: 'claude-3-5-sonnet',
+      });
+      providersService.getStrategy.mockReturnValue({ type: ProviderType.ANTHROPIC });
+
+      const resolved = await service.resolveProviderAndModel(
+        'user-uuid-1',
+        'prov-uuid-2',
+      );
+
+      expect(resolved.model).toBe('claude-3-5-sonnet');
+    });
+
+    it('should throw BadRequestException if model is not supported by provider', async () => {
+      subscriptionsService.getSubscriptionStatus.mockResolvedValue({
+        plan: 'premium',
+      });
+      providersService.findEntityWithApiKey.mockResolvedValue({
+        ...mockProviderWithKey,
+        models: ['gpt-4o', 'gpt-4o-mini'],
+      });
+
+      await expect(
+        service.resolveProviderAndModel(
+          'user-uuid-1',
+          'prov-uuid-1',
+          'non-existent-model',
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

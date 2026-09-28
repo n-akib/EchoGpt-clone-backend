@@ -122,22 +122,48 @@ export class ChatService {
     return { message: 'Conversation deleted successfully' };
   }
 
-  async sendMessage(
-    userId: string,
-    sendPromptDto: SendPromptDto,
-  ): Promise<ChatMessageResponseDto> {
-    // 1. Consume 1 request quota from subscription
-    await this.subscriptionsService.consumeRequest(userId);
+  async getAvailableChatProviders(userId: string) {
+    const subscription = await this.subscriptionsService.getSubscriptionStatus(userId);
+    const isPremium = subscription.plan === 'premium';
+    const providers = await this.providersService.findAllEnabled();
 
-    // 2. Resolve AI provider with decrypted API key
+    return providers.map((prov) => ({
+      ...prov,
+      isAccessible: isPremium || prov.isDefault,
+      requiresPremium: !prov.isDefault,
+    }));
+  }
+
+  async resolveProviderAndModel(
+    userId: string,
+    requestedProviderId?: string,
+    requestedModel?: string,
+  ): Promise<{
+    provider: any;
+    model: string;
+    strategy: any;
+  }> {
+    const subscription =
+      await this.subscriptionsService.getSubscriptionStatus(userId);
+    const isPremium = subscription.plan === 'premium';
+
     let providerWithKey: any;
-    if (sendPromptDto.providerId) {
+
+    if (requestedProviderId) {
       providerWithKey = await this.providersService.findEntityWithApiKey(
-        sendPromptDto.providerId,
+        requestedProviderId,
       );
+
       if (!providerWithKey.isEnabled) {
         throw new BadRequestException(
           `AI Provider "${providerWithKey.name}" is currently disabled`,
+        );
+      }
+
+      // Free tier users cannot choose non-default providers
+      if (!isPremium && !providerWithKey.isDefault) {
+        throw new ForbiddenException(
+          `Provider "${providerWithKey.name}" is a Premium feature. Please upgrade to Premium to switch providers.`,
         );
       }
     } else {
@@ -145,8 +171,44 @@ export class ChatService {
         await this.providersService.findDefaultProviderWithApiKey();
     }
 
-    const model = sendPromptDto.model || providerWithKey.defaultModel;
+    // Validate requested model if provided
+    let model = providerWithKey.defaultModel;
+    if (requestedModel) {
+      const supportedModels = providerWithKey.models || [];
+      if (
+        supportedModels.length > 0 &&
+        !supportedModels.includes(requestedModel)
+      ) {
+        throw new BadRequestException(
+          `Model "${requestedModel}" is not supported by ${providerWithKey.name}. Supported models: ${supportedModels.join(', ')}`,
+        );
+      }
+      model = requestedModel;
+    }
+
     const strategy = this.providersService.getStrategy(providerWithKey.type);
+
+    return {
+      provider: providerWithKey,
+      model,
+      strategy,
+    };
+  }
+
+  async sendMessage(
+    userId: string,
+    sendPromptDto: SendPromptDto,
+  ): Promise<ChatMessageResponseDto> {
+    // 1. Consume 1 request quota from subscription
+    await this.subscriptionsService.consumeRequest(userId);
+
+    // 2. Resolve AI provider and model with plan validation
+    const { provider: providerWithKey, model, strategy } =
+      await this.resolveProviderAndModel(
+        userId,
+        sendPromptDto.providerId,
+        sendPromptDto.model,
+      );
 
     // 3. Resolve or create conversation
     let conversation: ChatConversation;
