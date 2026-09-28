@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { BadRequestException } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 import { Subscription } from './entities/subscription.entity';
 import { SubscriptionPlan } from './enums/subscription-plan.enum';
@@ -142,6 +143,67 @@ describe('SubscriptionsService', () => {
 
       expect(subscriptionRepository.save).not.toHaveBeenCalled();
       expect(result.requestsUsed).toBe(20);
+    });
+  });
+
+  describe('changePlan', () => {
+    it('should successfully upgrade from Free to Premium plan', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        plan: SubscriptionPlan.FREE,
+        requestsUsed: 25,
+      });
+
+      const result = await service.changePlan('user-uuid-1', {
+        plan: SubscriptionPlan.PREMIUM,
+      });
+
+      expect(subscriptionRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plan: SubscriptionPlan.PREMIUM,
+          monthlyLimit: 1000,
+          requestsUsed: 0,
+        }),
+      );
+      expect(result.plan).toBe(SubscriptionPlan.PREMIUM);
+      expect(result.monthlyLimit).toBe(1000);
+      expect(result.requestsRemaining).toBe(1000);
+    });
+
+    it('should successfully downgrade from Premium to Free plan', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        plan: SubscriptionPlan.PREMIUM,
+        monthlyLimit: 1000,
+        requestsUsed: 10,
+      });
+
+      const result = await service.changePlan('user-uuid-1', {
+        plan: SubscriptionPlan.FREE,
+      });
+
+      expect(subscriptionRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plan: SubscriptionPlan.FREE,
+          monthlyLimit: 50,
+        }),
+      );
+      expect(result.plan).toBe(SubscriptionPlan.FREE);
+      expect(result.monthlyLimit).toBe(50);
+    });
+
+    it('should throw BadRequestException when changing to same current plan', async () => {
+      subscriptionRepository.findOne.mockResolvedValue({
+        ...mockSubscription,
+        plan: SubscriptionPlan.FREE,
+        status: SubscriptionStatus.ACTIVE,
+      });
+
+      await expect(
+        service.changePlan('user-uuid-1', {
+          plan: SubscriptionPlan.FREE,
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subscription } from './entities/subscription.entity';
@@ -10,6 +14,7 @@ import {
 } from './constants/subscription-plans.constant';
 import { SubscriptionResponseDto } from './dto/subscription-response.dto';
 import { PlanDetailsDto } from './dto/plan-details.dto';
+import { ChangePlanDto } from './dto/change-plan.dto';
 
 @Injectable()
 export class SubscriptionsService {
@@ -51,6 +56,42 @@ export class SubscriptionsService {
   async getSubscriptionStatus(userId: string): Promise<SubscriptionResponseDto> {
     const subscription = await this.getOrCreateUserSubscription(userId);
     return this.mapToResponseDto(subscription);
+  }
+
+  async changePlan(
+    userId: string,
+    changePlanDto: ChangePlanDto,
+  ): Promise<SubscriptionResponseDto> {
+    const subscription = await this.getOrCreateUserSubscription(userId);
+
+    if (subscription.plan === changePlanDto.plan && subscription.status === SubscriptionStatus.ACTIVE) {
+      throw new BadRequestException(
+        `You are already subscribed to the ${changePlanDto.plan} plan`,
+      );
+    }
+
+    const newPlanConfig = SUBSCRIPTION_PLANS[changePlanDto.plan];
+    if (!newPlanConfig) {
+      throw new BadRequestException(`Invalid subscription plan: ${changePlanDto.plan}`);
+    }
+
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+    subscription.plan = changePlanDto.plan;
+    subscription.status = SubscriptionStatus.ACTIVE;
+    subscription.monthlyLimit = newPlanConfig.monthlyRequestLimit;
+    subscription.currentPeriodStart = now;
+    subscription.currentPeriodEnd = periodEnd;
+
+    // When upgrading to premium, reset usage so user gets full allocation
+    if (changePlanDto.plan === SubscriptionPlan.PREMIUM) {
+      subscription.requestsUsed = 0;
+    }
+
+    const saved = await this.subscriptionRepository.save(subscription);
+    return this.mapToResponseDto(saved);
   }
 
   getAvailablePlans(): PlanDetailsDto[] {
