@@ -3,6 +3,7 @@ import {
   Get,
   Patch,
   Post,
+  Delete,
   Body,
   UseGuards,
   HttpCode,
@@ -22,6 +23,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 
 @ApiTags('Users')
@@ -95,5 +97,32 @@ export class UsersController {
     @Body() changePasswordDto: ChangePasswordDto,
   ): Promise<{ message: string }> {
     return this.usersService.changePassword(userId, changePasswordDto);
+  }
+
+  @Delete('account')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete account',
+    description:
+      'Soft-deletes the authenticated user\'s account. Password confirmation is required. The account will be deactivated immediately.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Account deleted successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Account deleted successfully' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiNotFoundResponse({ description: 'User not found or account already inactive' })
+  @ApiBadRequestResponse({ description: 'Password is incorrect' })
+  async deleteAccount(
+    @CurrentUser('id') userId: string,
+    @Body() deleteAccountDto: DeleteAccountDto,
+  ): Promise<{ message: string }> {
+    return this.usersService.deleteAccount(userId, deleteAccountDto);
   }
 }

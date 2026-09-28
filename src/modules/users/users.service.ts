@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 
 @Injectable()
 export class UsersService {
@@ -114,6 +115,29 @@ export class UsersService {
     await this.userRepository.save(user);
 
     return { message: 'Password changed successfully' };
+  }
+
+  async deleteAccount(
+    userId: string,
+    deleteAccountDto: DeleteAccountDto,
+  ): Promise<{ message: string }> {
+    const user = await this.findByIdWithPassword(userId);
+    if (!user || !user.isActive) {
+      throw new NotFoundException('User not found or account is already inactive');
+    }
+
+    const isMatch = await bcrypt.compare(
+      deleteAccountDto.password,
+      user.passwordHash,
+    );
+    if (!isMatch) {
+      throw new BadRequestException('Password is incorrect');
+    }
+
+    user.isActive = false;
+    await this.userRepository.save(user);
+
+    return { message: 'Account deleted successfully' };
   }
 }
 

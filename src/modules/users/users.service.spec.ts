@@ -177,4 +177,43 @@ describe('UsersService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('deleteAccount', () => {
+    it('should soft-delete the account when password is correct', async () => {
+      const password = 'CorrectPassword123!';
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      const qb = userRepository.createQueryBuilder();
+      qb.getOne.mockResolvedValue({ ...mockUser, passwordHash });
+
+      const result = await usersService.deleteAccount('user-uuid-1', {
+        password,
+      });
+
+      expect(userRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ isActive: false }),
+      );
+      expect(result).toEqual({ message: 'Account deleted successfully' });
+    });
+
+    it('should throw BadRequestException if password is incorrect', async () => {
+      const passwordHash = await bcrypt.hash('CorrectPassword123!', 10);
+
+      const qb = userRepository.createQueryBuilder();
+      qb.getOne.mockResolvedValue({ ...mockUser, passwordHash });
+
+      await expect(
+        usersService.deleteAccount('user-uuid-1', { password: 'WrongPassword!' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException if user does not exist or is already inactive', async () => {
+      const qb = userRepository.createQueryBuilder();
+      qb.getOne.mockResolvedValue(null);
+
+      await expect(
+        usersService.deleteAccount('non-existent', { password: 'any' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
 });
