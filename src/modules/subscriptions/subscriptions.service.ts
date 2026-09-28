@@ -190,4 +190,103 @@ export class SubscriptionsService {
       },
     };
   }
+
+  async getSubscriptionStats(): Promise<{
+    totalSubscriptions: number;
+    activeSubscriptions: number;
+    freePlanCount: number;
+    premiumPlanCount: number;
+    totalRequestsConsumed: number;
+  }> {
+    const totalSubscriptions = await this.subscriptionRepository.count();
+    const activeSubscriptions = await this.subscriptionRepository.count({
+      where: { status: SubscriptionStatus.ACTIVE },
+    });
+    const freePlanCount = await this.subscriptionRepository.count({
+      where: { plan: SubscriptionPlan.FREE },
+    });
+    const premiumPlanCount = await this.subscriptionRepository.count({
+      where: { plan: SubscriptionPlan.PREMIUM },
+    });
+
+    const sumResult = await this.subscriptionRepository
+      .createQueryBuilder('sub')
+      .select('SUM(sub.requests_used)', 'total')
+      .getRawOne();
+
+    const totalRequestsConsumed = parseInt(sumResult?.total || '0', 10);
+
+    return {
+      totalSubscriptions,
+      activeSubscriptions,
+      freePlanCount,
+      premiumPlanCount,
+      totalRequestsConsumed,
+    };
+  }
+
+  async findAllSubscriptions(options?: {
+    plan?: SubscriptionPlan;
+    status?: SubscriptionStatus;
+    limit?: number;
+    page?: number;
+  }): Promise<{ subscriptions: SubscriptionResponseDto[]; total: number }> {
+    const limit = Math.min(Math.max(options?.limit || 20, 1), 100);
+    const page = Math.max(options?.page || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const qb = this.subscriptionRepository.createQueryBuilder('sub');
+
+    if (options?.plan) {
+      qb.andWhere('sub.plan = :plan', { plan: options.plan });
+    }
+
+    if (options?.status) {
+      qb.andWhere('sub.status = :status', { status: options.status });
+    }
+
+    qb.orderBy('sub.created_at', 'DESC');
+    qb.skip(skip).take(limit);
+
+    const [subs, total] = await qb.getManyAndCount();
+    return {
+      subscriptions: subs.map((s) => this.mapToResponseDto(s)),
+      total,
+    };
+  }
+
+  async adminUpdateSubscription(
+    userId: string,
+    updateData: {
+      plan?: SubscriptionPlan;
+      status?: SubscriptionStatus;
+      monthlyLimit?: number;
+      resetUsage?: boolean;
+    },
+  ): Promise<SubscriptionResponseDto> {
+    const subscription = await this.getOrCreateUserSubscription(userId);
+
+    if (updateData.plan) {
+      subscription.plan = updateData.plan;
+      const planConfig = SUBSCRIPTION_PLANS[updateData.plan];
+      if (planConfig && updateData.monthlyLimit === undefined) {
+        subscription.monthlyLimit = planConfig.monthlyRequestLimit;
+      }
+    }
+
+    if (updateData.status) {
+      subscription.status = updateData.status;
+    }
+
+    if (updateData.monthlyLimit !== undefined) {
+      subscription.monthlyLimit = updateData.monthlyLimit;
+    }
+
+    if (updateData.resetUsage) {
+      subscription.requestsUsed = 0;
+    }
+
+    const saved = await this.subscriptionRepository.save(subscription);
+    return this.mapToResponseDto(saved);
+  }
 }

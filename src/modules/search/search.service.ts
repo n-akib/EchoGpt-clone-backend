@@ -343,4 +343,35 @@ export class SearchService {
       createdAt: entity.createdAt,
     };
   }
+
+  async getSearchStats(): Promise<{
+    totalSearches: number;
+    totalResultsReturned: number;
+    popularQueries: Array<{ query: string; count: number }>;
+  }> {
+    const totalSearches = await this.webSearchRepository.count();
+
+    const sumResult = await this.webSearchRepository
+      .createQueryBuilder('ws')
+      .select('SUM(ws.results_count)', 'totalResults')
+      .getRawOne();
+
+    const popular = await this.webSearchRepository
+      .createQueryBuilder('ws')
+      .select('ws.query', 'query')
+      .addSelect('COUNT(ws.id)', 'count')
+      .groupBy('ws.query')
+      .orderBy('count', 'DESC')
+      .limit(5)
+      .getRawMany();
+
+    return {
+      totalSearches,
+      totalResultsReturned: parseInt(sumResult?.totalResults || '0', 10),
+      popularQueries: popular.map((p) => ({
+        query: p.query,
+        count: parseInt(p.count, 10),
+      })),
+    };
+  }
 }

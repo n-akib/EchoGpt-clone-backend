@@ -10,6 +10,7 @@ import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
+import { UserRole } from './enums/user-role.enum';
 
 @Injectable()
 export class UsersService {
@@ -145,6 +146,82 @@ export class UsersService {
       where: { isActive: true },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async getUsersStats(): Promise<{
+    totalUsers: number;
+    activeUsers: number;
+    inactiveUsers: number;
+    adminCount: number;
+    userCount: number;
+  }> {
+    const totalUsers = await this.userRepository.count();
+    const activeUsers = await this.userRepository.count({ where: { isActive: true } });
+    const inactiveUsers = totalUsers - activeUsers;
+    const adminCount = await this.userRepository.count({ where: { role: UserRole.ADMIN } });
+    const userCount = await this.userRepository.count({ where: { role: UserRole.USER } });
+
+    return {
+      totalUsers,
+      activeUsers,
+      inactiveUsers,
+      adminCount,
+      userCount,
+    };
+  }
+
+  async findUsersAdmin(options: {
+    search?: string;
+    role?: UserRole;
+    isActive?: boolean;
+    limit?: number;
+    page?: number;
+  }): Promise<{ users: User[]; total: number }> {
+    const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+    const page = Math.max(options.page || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const qb = this.userRepository.createQueryBuilder('user');
+
+    if (options.role) {
+      qb.andWhere('user.role = :role', { role: options.role });
+    }
+
+    if (options.isActive !== undefined) {
+      qb.andWhere('user.is_active = :isActive', { isActive: options.isActive });
+    }
+
+    if (options.search) {
+      const term = `%${options.search.toLowerCase().trim()}%`;
+      qb.andWhere(
+        '(LOWER(user.email) LIKE :term OR LOWER(user.first_name) LIKE :term OR LOWER(user.last_name) LIKE :term)',
+        { term },
+      );
+    }
+
+    qb.orderBy('user.created_at', 'DESC');
+    qb.skip(skip).take(limit);
+
+    const [users, total] = await qb.getManyAndCount();
+    return { users, total };
+  }
+
+  async updateUserRole(userId: string, role: UserRole): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+    user.role = role;
+    return this.userRepository.save(user);
+  }
+
+  async updateUserStatus(userId: string, isActive: boolean): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+    user.isActive = isActive;
+    return this.userRepository.save(user);
   }
 }
 

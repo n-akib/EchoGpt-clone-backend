@@ -504,4 +504,53 @@ export class ChatService {
       createdAt: entity.createdAt,
     };
   }
+
+  async getChatStats(): Promise<{
+    totalConversations: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    messagesByModel: Array<{ model: string; count: number }>;
+  }> {
+    const totalConversations = await this.conversationRepository.count();
+    const totalMessages = await this.messageRepository.count();
+    const userMessages = await this.messageRepository.count({
+      where: { role: MessageRole.USER },
+    });
+    const assistantMessages = await this.messageRepository.count({
+      where: { role: MessageRole.ASSISTANT },
+    });
+
+    const tokenSums = await this.messageRepository
+      .createQueryBuilder('msg')
+      .select('SUM(msg.prompt_tokens)', 'promptTokens')
+      .addSelect('SUM(msg.completion_tokens)', 'completionTokens')
+      .addSelect('SUM(msg.total_tokens)', 'totalTokens')
+      .getRawOne();
+
+    const modelCounts = await this.messageRepository
+      .createQueryBuilder('msg')
+      .select('msg.model', 'model')
+      .addSelect('COUNT(msg.id)', 'count')
+      .where('msg.model IS NOT NULL')
+      .groupBy('msg.model')
+      .getRawMany();
+
+    return {
+      totalConversations,
+      totalMessages,
+      userMessages,
+      assistantMessages,
+      promptTokens: parseInt(tokenSums?.promptTokens || '0', 10),
+      completionTokens: parseInt(tokenSums?.completionTokens || '0', 10),
+      totalTokens: parseInt(tokenSums?.totalTokens || '0', 10),
+      messagesByModel: modelCounts.map((m) => ({
+        model: m.model,
+        count: parseInt(m.count, 10),
+      })),
+    };
+  }
 }
